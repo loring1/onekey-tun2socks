@@ -19,26 +19,26 @@ v1.0.2 更新Alice出口（移除香港机房IP）
 
 ### 以下命令适用于Alice的纯IPv6免费机
 ```bash
-curl -L https://raw.githubusercontent.com/hkfires/onekey-tun2socks/main/onekey-tun2socks.sh -o onekey-tun2socks.sh && chmod +x onekey-tun2socks.sh && sudo ./onekey-tun2socks.sh -i alice
+curl -L https://raw.githubusercontent.com/loring1/onekey-tun2socks/main/onekey-tun2socks.sh -o onekey-tun2socks.sh && chmod +x onekey-tun2socks.sh && sudo ./onekey-tun2socks.sh -i alice
 ```
 
 > 注意事项：有IPv4的Alice机型使用Alice家宽Socks5出口时，需手动修改DNS（建议使用Alice V6的解锁DNS），由于家宽IP不在Alice V4 DNS的白名单内，会导致解析失败；机房Socks5出口不受此影响。
 
 ### 以下命令适用于LegendVPS的纯IPv6免费机
 ```bash
-curl -L https://raw.githubusercontent.com/hkfires/onekey-tun2socks/main/onekey-tun2socks.sh -o onekey-tun2socks.sh && chmod +x onekey-tun2socks.sh && sudo ./onekey-tun2socks.sh -i legend
+curl -L https://raw.githubusercontent.com/loring1/onekey-tun2socks/main/onekey-tun2socks.sh -o onekey-tun2socks.sh && chmod +x onekey-tun2socks.sh && sudo ./onekey-tun2socks.sh -i legend
 ```
 
 ### 卸载
 ```bash
-curl -L https://raw.githubusercontent.com/hkfires/onekey-tun2socks/main/onekey-tun2socks.sh -o onekey-tun2socks.sh && chmod +x onekey-tun2socks.sh && sudo ./onekey-tun2socks.sh -r
+curl -L https://raw.githubusercontent.com/loring1/onekey-tun2socks/main/onekey-tun2socks.sh -o onekey-tun2socks.sh && chmod +x onekey-tun2socks.sh && sudo ./onekey-tun2socks.sh -r
 ```
 
 ## 手动下载运行
 
 1. 下载脚本：
 ```bash
-curl -L https://raw.githubusercontent.com/hkfires/onekey-tun2socks/main/onekey-tun2socks.sh -o onekey-tun2socks.sh
+curl -L https://raw.githubusercontent.com/loring1/onekey-tun2socks/main/onekey-tun2socks.sh -o onekey-tun2socks.sh
 ```
 
 2. 添加执行权限：
