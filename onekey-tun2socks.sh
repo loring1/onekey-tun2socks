@@ -4,7 +4,7 @@ set -e
 #================================================================================
 # 常量和全局变量
 #================================================================================
-VERSION="1.1.4"
+VERSION="1.1.5"
 SCRIPT_URL="https://raw.githubusercontent.com/hkfires/onekey-tun2socks/main/onekey-tun2socks.sh"
 
 # 颜色定义
@@ -50,7 +50,7 @@ show_usage() {
     echo -e "${CYAN}选项:${NC}"
     echo -e "  ${GREEN}-i, --install${NC}    安装 tun2socks (可选参数: alice, legend, akile, 或 custom)"
     echo -e "  ${GREEN}-r, --remove${NC}     卸载 tun2socks"
-    echo -e "  ${GREEN}-s, --switch${NC}     切换 Alice 模式的 Socks5 端口 (如果已安装)"
+    echo -e "  ${GREEN}-s, --switch${NC}     切换 Socks5 出口 (支持 Alice/Akile 模式，如果已安装)"
     echo -e "  ${GREEN}-u, --update${NC}     检查并更新脚本"
     echo -e "  ${GREEN}-h, --help${NC}       显示此帮助信息"
     echo
@@ -60,7 +60,7 @@ show_usage() {
     echo -e "  $0 -i akile    安装 Akile 版本的 tun2socks"
     echo -e "  $0 -i custom   使用自定义出口节点安装 tun2socks"
     echo -e "  $0 -r          卸载 tun2socks"
-    echo -e "  $0 -s          切换 Alice 模式的 Socks5 端口"
+    echo -e "  $0 -s          切换 Socks5 出口 (Alice/Akile)"
     echo -e "  $0 -u          检查脚本更新"
 }
 
@@ -669,59 +669,130 @@ EOF
 
 switch_alice_port() {
     CONFIG_FILE="/etc/tun2socks/config.yaml"
-    step "开始切换 Alice 模式 Socks5 端口..."
 
     if [ ! -f "$CONFIG_FILE" ]; then
         error "配置文件 $CONFIG_FILE 未找到。请先运行安装命令。"
         exit 1
     fi
 
-    if ! grep -q "username: 'alice'" "$CONFIG_FILE"; then
-        error "此切换功能仅适用于 Alice 模式的配置。"
-        info "Legend 和 Custom 模式的配置需要手动修改: $CONFIG_FILE"
+    local detected_mode=""
+    if grep -q "username: 'alice'" "$CONFIG_FILE"; then
+        detected_mode="alice"
+    elif grep -q "username: 'akilecloud'" "$CONFIG_FILE"; then
+        detected_mode="akile"
+    fi
+
+    if [ -z "$detected_mode" ]; then
+        error "无法识别当前配置模式。此切换功能仅支持 Alice/Akile 模式。"
+        info "如需切换 Legend/Custom，请手动修改: $CONFIG_FILE"
         exit 1
     fi
 
-    current_port=$(grep -oP 'port: \K[0-9]+' "$CONFIG_FILE" | head -n 1)
-    if [ -z "$current_port" ]; then
-        error "无法从配置文件中读取当前端口。"
-        exit 1
-    fi
-    info "当前 Socks5 端口: $current_port"
+    if [ "$detected_mode" = "alice" ]; then
+        step "开始切换 Alice 模式 Socks5 端口..."
 
-    NEW_SOCKS_PORT=$(select_alice_port)
+        current_port=$(grep -oP 'port:\s*\K[0-9]+' "$CONFIG_FILE" | head -n 1)
+        if [ -z "$current_port" ]; then
+            error "无法从配置文件中读取当前端口。"
+            exit 1
+        fi
+        info "当前 Socks5 端口: $current_port"
 
-    if [ "$NEW_SOCKS_PORT" = "$current_port" ]; then
-        info "选择的端口 ($NEW_SOCKS_PORT) 与当前配置相同，无需更改。"
-        exit 0
+        NEW_SOCKS_PORT=$(select_alice_port)
+
+        if [ "$NEW_SOCKS_PORT" = "$current_port" ]; then
+            info "选择的端口 ($NEW_SOCKS_PORT) 与当前配置相同，无需更改。"
+            exit 0
+        fi
+
+        step "正在停止 tun2socks 服务..."
+        if systemctl stop tun2socks.service; then
+            success "tun2socks 服务已停止。"
+        else
+            error "停止 tun2socks 服务失败。请检查服务状态。"
+        fi
+
+        step "正在更新配置文件 $CONFIG_FILE ..."
+        sed -i "/^socks5:/,/^[^[:space:]]/ { s/^  port: .*/  port: $NEW_SOCKS_PORT/ }" "$CONFIG_FILE"
+
+        if grep -qE "^\s*port:\s*$NEW_SOCKS_PORT\s*$" "$CONFIG_FILE"; then
+            success "配置文件已更新，新端口为: $NEW_SOCKS_PORT"
+        else
+            error "更新配置文件失败。请检查 $CONFIG_FILE 文件。"
+            warning "正在尝试以旧配置重启服务..."
+            systemctl start tun2socks.service
+            exit 1
+        fi
+
+        step "正在启动 tun2socks 服务..."
+        if systemctl start tun2socks.service; then
+            success "tun2socks 服务已启动。"
+            success "Socks5 端口已成功切换至 $NEW_SOCKS_PORT。"
+        else
+            error "启动 tun2socks 服务失败。请使用 'systemctl status tun2socks.service' 和 'journalctl -u tun2socks.service' 查看详情。"
+            error "配置文件可能已更新为新端口 $NEW_SOCKS_PORT，但服务启动失败。"
+            exit 1
+        fi
+        return
     fi
 
-    step "正在停止 tun2socks 服务..."
-    if systemctl stop tun2socks.service; then
-        success "tun2socks 服务已停止。"
-    else
-        error "停止 tun2socks 服务失败。请检查服务状态。"
-    fi
+    if [ "$detected_mode" = "akile" ]; then
+        step "开始切换 Akile 模式 Socks5 节点..."
 
-    step "正在更新配置文件 $CONFIG_FILE ..."
-    sed -i "s/port: $current_port/port: $NEW_SOCKS_PORT/" "$CONFIG_FILE"
-    if grep -q "port: $NEW_SOCKS_PORT" "$CONFIG_FILE"; then
-        success "配置文件已更新，新端口为: $NEW_SOCKS_PORT"
-    else
-        error "更新配置文件失败。请检查 $CONFIG_FILE 文件。"
-        warning "正在尝试以旧配置重启服务..."
-        systemctl start tun2socks.service
-        exit 1
-    fi
-    
-    step "正在启动 tun2socks 服务..."
-    if systemctl start tun2socks.service; then
-        success "tun2socks 服务已启动。"
-        success "Socks5 端口已成功切换至 $NEW_SOCKS_PORT。"
-    else
-        error "启动 tun2socks 服务失败。请使用 'systemctl status tun2socks.service' 和 'journalctl -u tun2socks.service' 查看详情。"
-        error "配置文件可能已更新为新端口 $NEW_SOCKS_PORT，但服务启动失败。"
-        exit 1
+        current_port=$(grep -oP 'port:\s*\K[0-9]+' "$CONFIG_FILE" | head -n 1)
+        current_address=$(grep -oP "address:\s*'\K[^']+" "$CONFIG_FILE" | head -n 1)
+
+        if [ -z "$current_port" ] || [ -z "$current_address" ]; then
+            error "无法从配置文件中读取当前 Akile 节点信息 (address/port)。"
+            exit 1
+        fi
+        info "当前 Akile 节点: $current_address:$current_port"
+
+        select_akile_node | {
+            IFS= read -r NEW_SOCKS_ADDRESS
+            IFS= read -r NEW_SOCKS_PORT
+            NEW_SOCKS_ADDRESS="$(echo "$NEW_SOCKS_ADDRESS" | tr -d '\r')"
+            NEW_SOCKS_PORT="$(echo "$NEW_SOCKS_PORT" | tr -d '\r')"
+
+            if [ -z "$NEW_SOCKS_ADDRESS" ] || [ -z "$NEW_SOCKS_PORT" ]; then
+                error "未能获取新的 Akile 节点信息。"
+                exit 1
+            fi
+
+            if [ "$NEW_SOCKS_ADDRESS" = "$current_address" ] && [ "$NEW_SOCKS_PORT" = "$current_port" ]; then
+                info "选择的节点与当前配置相同，无需更改。"
+                exit 0
+            fi
+
+            step "正在停止 tun2socks 服务..."
+            if systemctl stop tun2socks.service; then
+                success "tun2socks 服务已停止。"
+            else
+                error "停止 tun2socks 服务失败。请检查服务状态。"
+            fi
+
+            step "正在更新配置文件 $CONFIG_FILE ..."
+            sed -i "/^socks5:/,/^[^[:space:]]/ { s/^  port: .*/  port: $NEW_SOCKS_PORT/; s/^  address: .*/  address: '$NEW_SOCKS_ADDRESS'/ }" "$CONFIG_FILE"
+
+            if grep -qE "^\s*port:\s*$NEW_SOCKS_PORT\s*$" "$CONFIG_FILE" && grep -q "address: '$NEW_SOCKS_ADDRESS'" "$CONFIG_FILE"; then
+                success "配置文件已更新，新节点为: $NEW_SOCKS_ADDRESS:$NEW_SOCKS_PORT"
+            else
+                error "更新配置文件失败。请检查 $CONFIG_FILE 文件。"
+                warning "正在尝试以旧配置重启服务..."
+                systemctl start tun2socks.service
+                exit 1
+            fi
+
+            step "正在启动 tun2socks 服务..."
+            if systemctl start tun2socks.service; then
+                success "tun2socks 服务已启动。"
+                success "Akile 节点已成功切换至 $NEW_SOCKS_ADDRESS:$NEW_SOCKS_PORT。"
+            else
+                error "启动 tun2socks 服务失败。请使用 'systemctl status tun2socks.service' 和 'journalctl -u tun2socks.service' 查看详情。"
+                error "配置文件可能已更新为新节点 $NEW_SOCKS_ADDRESS:$NEW_SOCKS_PORT，但服务启动失败。"
+                exit 1
+            fi
+        }
     fi
 }
 

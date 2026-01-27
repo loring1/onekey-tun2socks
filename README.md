@@ -1,6 +1,8 @@
-# 给免费机一键添加Socks5 IPv4出口
+# 给VPS一键添加Socks5出口
 
 ## 更新日志
+v1.1.5 同时支持Alice/Akile模式切换节点
+
 v1.1.4 新增Akile服务商出口
 
 v1.1.3 更新Alice家宽出口
@@ -29,16 +31,21 @@ v1.0.2 更新Alice出口（移除香港机房IP）
 
 ## 快速开始
 
-### 以下命令适用于Alice的纯IPv6免费机
+### 以下命令适用于Alice的免费机
 ```bash
 curl -L https://raw.githubusercontent.com/hkfires/onekey-tun2socks/main/onekey-tun2socks.sh -o onekey-tun2socks.sh && chmod +x onekey-tun2socks.sh && sudo ./onekey-tun2socks.sh -i alice
 ```
 
 > 注意事项：有IPv4的Alice机型使用Alice家宽Socks5出口时，需手动修改DNS（建议使用Alice V6的解锁DNS），由于家宽IP不在Alice V4 DNS的白名单内，会导致解析失败；机房Socks5出口不受此影响。
 
-### 以下命令适用于LegendVPS的纯IPv6免费机（出口可能已失效）
+### 以下命令适用于LegendVPS的纯IPv6免费机（由于LegendVPS已清退免费鸡，出口可能已失效）
 ```bash
 curl -L https://raw.githubusercontent.com/hkfires/onekey-tun2socks/main/onekey-tun2socks.sh -o onekey-tun2socks.sh && chmod +x onekey-tun2socks.sh && sudo ./onekey-tun2socks.sh -i legend
+```
+
+### 以下命令适用于Akile ASN下的VPS
+```bash
+curl -L https://raw.githubusercontent.com/hkfires/onekey-tun2socks/main/onekey-tun2socks.sh -o onekey-tun2socks.sh && chmod +x onekey-tun2socks.sh && sudo ./onekey-tun2socks.sh -i akile
 ```
 
 ### 卸载
@@ -71,7 +78,10 @@ sudo ./onekey-tun2socks.sh -i alice
 # 安装 Legend 版本（出口可能已失效）
 sudo ./onekey-tun2socks.sh -i legend
 
-# 变更 Alice 出口
+# 安装 Akile 版本
+sudo ./onekey-tun2socks.sh -i akile
+
+# 变更 Socks5 出口（支持 Alice/Akile）
 sudo ./onekey-tun2socks.sh -s
 
 # 检查更新
