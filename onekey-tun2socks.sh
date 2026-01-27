@@ -4,7 +4,7 @@ set -e
 #================================================================================
 # 常量和全局变量
 #================================================================================
-VERSION="1.1.3"
+VERSION="1.1.4"
 SCRIPT_URL="https://raw.githubusercontent.com/hkfires/onekey-tun2socks/main/onekey-tun2socks.sh"
 
 # 颜色定义
@@ -48,7 +48,7 @@ require_root() {
 show_usage() {
     echo -e "${CYAN}使用方法:${NC} $0 [选项]"
     echo -e "${CYAN}选项:${NC}"
-    echo -e "  ${GREEN}-i, --install${NC}    安装 tun2socks (可选参数: alice, legend, 或 custom)"
+    echo -e "  ${GREEN}-i, --install${NC}    安装 tun2socks (可选参数: alice, legend, akile, 或 custom)"
     echo -e "  ${GREEN}-r, --remove${NC}     卸载 tun2socks"
     echo -e "  ${GREEN}-s, --switch${NC}     切换 Alice 模式的 Socks5 端口 (如果已安装)"
     echo -e "  ${GREEN}-u, --update${NC}     检查并更新脚本"
@@ -57,6 +57,7 @@ show_usage() {
     echo -e "${CYAN}示例:${NC}"
     echo -e "  $0 -i alice    安装 Alice 版本的 tun2socks"
     echo -e "  $0 -i legend   安装 Legend 版本的 tun2socks"
+    echo -e "  $0 -i akile    安装 Akile 版本的 tun2socks"
     echo -e "  $0 -i custom   使用自定义出口节点安装 tun2socks"
     echo -e "  $0 -r          卸载 tun2socks"
     echo -e "  $0 -s          切换 Alice 模式的 Socks5 端口"
@@ -297,6 +298,55 @@ select_alice_port() {
     done
 }
 
+select_akile_node() {
+    local options=(
+        "HK-RANDOMIPV6|45.8.186.151|58888"
+        "JP-RANDOMIPV6|203.10.99.23|58888"
+        "KR-RANDOMIPV6|141.11.131.253|58888"
+        "TW-RANDOMIPV6|45.207.158.22|58888"
+        "SG-RANDOMIPV6|104.192.92.63|58888"
+        "US-RANDOMIPV6|154.83.90.2|58888"
+        "UK-RANDOMIPV6|212.135.39.2|58888"
+        "DE-RANDOMIPV6|45.196.222.2|58888"
+        "JP-SOFTBANK|141.11.131.205|58888"
+        "JP-KDDI|141.11.131.205|59999"
+        "TW-HINET|45.207.158.220|58888"
+        "HK-HKBN|45.207.156.2|58888"
+    )
+
+    echo >&2
+    echo -e "${YELLOW}=========================================================${NC}" >&2
+    echo -e "${GREEN}Akile Socks5 出口节点选择${NC}" >&2
+    echo -e "${YELLOW}=========================================================${NC}" >&2
+    echo >&2
+    info "请选择 Akile Socks5 出口节点:" >&2
+
+    for i in "${!options[@]}"; do
+        local name host port
+        name="${options[$i]%%|*}"
+        host="$(echo "${options[$i]}" | cut -d'|' -f2)"
+        port="$(echo "${options[$i]}" | cut -d'|' -f3)"
+        printf "  %s) ${GREEN}%s${NC} (%s:%s)\n" "$((i+1))" "$name" "$host" "$port" >&2
+    done
+
+    local choice
+    while true; do
+        read -r -p "请输入选项 (1-${#options[@]}，默认为1): " choice
+        choice=${choice:-1}
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#options[@]} ]; then
+            local selected="${options[$((choice-1))]}"
+            local host="$(echo "$selected" | cut -d'|' -f2)"
+            local port="$(echo "$selected" | cut -d'|' -f3)"
+            info "已选择节点: ${selected%%|*} ($host:$port)" >&2
+            echo "$host"
+            echo "$port"
+            return
+        else
+            error "无效的选择，请输入 1 到 ${#options[@]} 之间的数字。" >&2
+        fi
+    done
+}
+
 cleanup_ip_rules() {
     step "正在清理残留的 IP 规则和路由..."
 
@@ -312,6 +362,11 @@ cleanup_ip_rules() {
     info "正在循环清理优先级为 15 的规则..."
     while ip rule del pref 15 2>/dev/null; do
         info "删除了一条优先级为 15 的规则。"
+    done
+
+    info "正在循环清理 IPv6 优先级为 15 的规则..."
+    while ip -6 rule del pref 15 2>/dev/null; do
+        info "删除了一条 IPv6 优先级为 15 的规则。"
     done
 
     success "IP 规则和路由清理完成。"
@@ -461,6 +516,27 @@ socks5:
   password: 'alicefofo123..OVO'
   mark: 438
 EOF
+    elif [ "$MODE" = "akile" ]; then
+        select_akile_node | {
+            IFS= read -r SOCKS_ADDRESS
+            IFS= read -r SOCKS_PORT
+
+            cat > "$CONFIG_FILE" <<EOF
+tunnel:
+  name: tun0
+  mtu: 8500
+  multi-queue: true
+  ipv4: 198.18.0.1
+
+socks5:
+  port: $(echo "$SOCKS_PORT" | tr -d '\r')
+  address: '$(echo "$SOCKS_ADDRESS" | tr -d '\r')'
+  udp: 'udp'
+  username: 'akilecloud'
+  password: 'akilecloud'
+  mark: 438
+EOF
+        }
     elif [ "$MODE" = "custom" ]; then
         get_custom_server_config | {
             IFS= read -r SOCKS_ADDRESS
@@ -502,16 +578,27 @@ EOF
 
     step "生成 systemd 服务文件 (tun2socks.service)..."
     
-    if [ "$MODE" = "alice" ]; then
-        MAIN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}')
-        RULE_ADD_FROM_MAIN_IP=""
-        RULE_DEL_FROM_MAIN_IP=""
+    RULE_ADD_FROM_MAIN_IP=""
+    RULE_DEL_FROM_MAIN_IP=""
+    RULE_ADD_FROM_MAIN_IP6=""
+    RULE_DEL_FROM_MAIN_IP6=""
+
+    if [ "$MODE" = "alice" ] || [ "$MODE" = "akile" ] || [ "$MODE" = "legend" ]; then
+        MAIN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
+        MAIN_IP6=$(ip -6 route get 2606:4700:4700::1111 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
 
         if [ -n "$MAIN_IP" ]; then
             info "检测到 IPv4 地址: $MAIN_IP"
             info "将添加规则以允许源 IP 为 $MAIN_IP 的流量通过主路由表。"
             RULE_ADD_FROM_MAIN_IP="ExecStartPost=/sbin/ip rule add from $MAIN_IP lookup main pref 15"
             RULE_DEL_FROM_MAIN_IP="ExecStop=/sbin/ip rule del from $MAIN_IP lookup main pref 15"
+        fi
+
+        if [ -n "$MAIN_IP6" ]; then
+            info "检测到 IPv6 地址: $MAIN_IP6"
+            info "将添加规则以允许源 IP 为 $MAIN_IP6 的流量通过主路由表。"
+            RULE_ADD_FROM_MAIN_IP6="ExecStartPost=/sbin/ip -6 rule add from $MAIN_IP6 lookup main pref 15"
+            RULE_DEL_FROM_MAIN_IP6="ExecStop=/sbin/ip -6 rule del from $MAIN_IP6 lookup main pref 15"
         fi
     fi
 
@@ -530,6 +617,7 @@ ExecStartPost=/sbin/ip -6 rule add fwmark 438 lookup main pref 10
 ExecStartPost=/sbin/ip route add default dev tun0 table 20
 ExecStartPost=/sbin/ip rule add lookup 20 pref 20
 ${RULE_ADD_FROM_MAIN_IP}
+${RULE_ADD_FROM_MAIN_IP6}
 ExecStartPost=/sbin/ip rule add to 127.0.0.0/8 lookup main pref 16
 ExecStartPost=/sbin/ip rule add to 10.0.0.0/8 lookup main pref 16
 ExecStartPost=/sbin/ip rule add to 172.16.0.0/12 lookup main pref 16
@@ -540,6 +628,7 @@ ExecStop=/sbin/ip -6 rule del fwmark 438 lookup main pref 10
 ExecStop=/sbin/ip route del default dev tun0 table 20
 ExecStop=/sbin/ip rule del lookup 20 pref 20
 ${RULE_DEL_FROM_MAIN_IP}
+${RULE_DEL_FROM_MAIN_IP6}
 ExecStop=/sbin/ip rule del to 127.0.0.0/8 lookup main pref 16
 ExecStop=/sbin/ip rule del to 10.0.0.0/8 lookup main pref 16
 ExecStop=/sbin/ip rule del to 172.16.0.0/12 lookup main pref 16
@@ -697,8 +786,8 @@ parse_options() {
 dispatch_action() {
     case "$ACTION" in
         install)
-            if [ "$MODE" != "alice" ] && [ "$MODE" != "legend" ] && [ "$MODE" != "custom" ]; then
-                error "无效的安装模式 '$MODE'，请使用 'alice', 'legend' 或 'custom'"
+            if [ "$MODE" != "alice" ] && [ "$MODE" != "legend" ] && [ "$MODE" != "akile" ] && [ "$MODE" != "custom" ]; then
+                error "无效的安装模式 '$MODE'，请使用 'alice', 'legend', 'akile' 或 'custom'"
                 exit 1
             fi
             install_tun2socks
